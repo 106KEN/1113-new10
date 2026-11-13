@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>2026 旅遊 AI 問答</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+:root{--bg:#0b2540;--panel:#0f3a33;--line:#ffffff26;--txt:#f2f7fb;--mute:#9fb6c8;--g:#06c755;--ne:#2dd4bf;--se:#f5a524;--eu:#7c8cff;--us:#ff7a70}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:linear-gradient(160deg,#0b2540,#0a3a38);color:var(--txt);font:16px/1.6 "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{padding:16px 18px 8px}
+header small{color:var(--mute)}
+header h1{margin:0;font-size:1.7rem;line-height:1.2}
+header h1 span{color:var(--g)}
+#chat{flex:1;overflow-y:auto;margin:8px 14px;padding:14px;border:1px solid var(--line);border-radius:20px;background:#ffffff0d;display:flex;flex-direction:column;gap:10px}
+.m{max-width:86%;padding:9px 14px;border-radius:16px;word-break:break-word}
+.b{background:#fff;color:#12212e;align-self:flex-start;border-top-left-radius:4px}
+.u{background:var(--g);color:#06210f;font-weight:700;align-self:flex-end;border-top-right-radius:4px}
+.b b{color:#0a7a39}
+.b .ok{color:#0a7a39;font-weight:700}.b .no{color:#c2410c;font-weight:700}
+.b table{border-collapse:collapse;margin:6px 0 2px;font-size:.92rem}
+.b td{padding:2px 10px 2px 0;vertical-align:top}
+.b td:first-child{color:#51677a;white-space:nowrap}
+.b .note{font-size:.78rem;color:#51677a;margin-top:4px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;align-self:flex-start}
+.chips button{background:transparent;color:var(--txt);border:2px solid var(--c,#fff);border-radius:999px;padding:6px 16px;font:inherit;font-weight:700;cursor:pointer}
+.chips button:hover,.chips button:focus-visible{background:var(--c,#fff);color:#0b2540;outline:none}
+form{display:flex;gap:8px;padding:6px 14px 14px}
+input{flex:1;min-width:0;border-radius:999px;border:1px solid var(--line);background:#ffffff14;color:var(--txt);padding:10px 16px;font:inherit}
+input::placeholder{color:var(--mute)}
+form button{background:var(--g);color:#06210f;border:0;border-radius:999px;padding:0 20px;font:inherit;font-weight:700}
+:focus-visible{outline:2px solid #fff;outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <small>2026・互動式地圖</small>
+  <h1>AI 客服 <span>即時問答</span></h1>
+</header>
+<div id="chat" aria-live="polite"></div>
+<form id="f"><input id="q" placeholder="輸入國家或地區，例如：日本" autocomplete="off"><button>送出</button></form>
+
+<script>
+// ===== 設定：換成你在 developers.line.biz 建立的 LIFF ID =====
+const LIFF_ID = "YOUR_LIFF_ID";
+
+// ===== 資料：金額為台灣出發、每人、新台幣的「參考估價」，請依實際行情更新 =====
+// m = 適合出發的月份；t = 跟團 [最低,最高,天數]；f = 自由行 [最低,最高]（萬元，含機票＋住宿＋餐飲）
+const REGIONS = {
+  "東北亞": {c:"var(--ne)", list:["日本","南韓","中國"]},
+  "東南亞": {c:"var(--se)", list:["泰國","越南","馬來西亞","菲律賓","印尼"]},
+  "歐洲":   {c:"var(--eu)", list:["英國","法國","德國","西班牙"]},
+  "美國":   {c:"var(--us)", list:["美國"]}
+};
+const D = {
+ "日本":{m:[3,4,5,10,11],s:"3–5月賞櫻、10–11月賞楓",t:[3,5,"5日"],f:[2,4]},
+ "南韓":{m:[4,5,9,10],s:"4–5月、9–10月（氣候舒適）",t:[2,3.5,"5日"],f:[1.5,3]},
+ "中國":{m:[4,5,9,10],s:"4–5月、9–10月（依城市而異）",t:[2.5,4.5,"7日"],f:[2,4]},
+ "泰國":{m:[11,12,1,2],s:"11–2月（涼季、少雨）",t:[2,3.5,"5日"],f:[1.5,3]},
+ "越南":{m:[11,12,1,2,3,4],s:"11–4月（北越 10–12、3–4月最舒服）",t:[1.8,3,"5日"],f:[1.2,2.5]},
+ "馬來西亞":{m:[3,4,5,6,7,8,9,10],s:"3–10月相對乾燥",t:[2,3.5,"5日"],f:[1.5,2.8]},
+ "菲律賓":{m:[11,12,1,2,3,4,5],s:"11–5月（乾季）",t:[2,3.5,"5日"],f:[1.5,3]},
+ "印尼":{m:[4,5,6,7,8,9,10],s:"4–10月（峇里島乾季）",t:[2.5,4,"5日"],f:[2,3.5]},
+ "英國":{m:[5,6,7,8,9],s:"5–9月（日照長、較少雨）",t:[8,12,"10日"],f:[6,10]},
+ "法國":{m:[4,5,6,9,10],s:"4–6月、9–10月",t:[8,12,"10日"],f:[6,10]},
+ "德國":{m:[5,6,7,8,9,12],s:"5–9月、12月聖誕市集",t:[8,12,"10日"],f:[6,9]},
+ "西班牙":{m:[4,5,6,9,10],s:"4–6月、9–10月（避開盛夏酷熱）",t:[8,13,"10日"],f:[6,10]},
+ "美國":{m:[4,5,6,9,10],s:"東岸 4–6月、9–10月；西岸全年皆宜",t:[8,15,"10日"],f:[7,12]}
+};
+const NOW = new Date().getMonth()+1;
+const chat = document.getElementById("chat");
+let last = "", lastName = "";
+
+function add(cls, html){
+  const d=document.createElement("div"); d.className="m "+cls; d.innerHTML=html;
+  chat.appendChild(d); chat.scrollTop=chat.scrollHeight; return d;
+}
+function chips(items, onPick){
+  const w=document.createElement("div"); w.className="chips";
+  items.forEach(it=>{
+    const b=document.createElement("button"); b.textContent=it.label;
+    if(it.c) b.style.setProperty("--c",it.c);
+    b.onclick=()=>{ w.remove(); add("u",it.label); onPick(it); };
+    w.appendChild(b);
+  });
+  chat.appendChild(w); chat.scrollTop=chat.scrollHeight;
+}
+const money=(a,b)=>`${a}–${b} 萬`;
+
+function askRegion(){
+  add("b","你好！想查哪個地區？也可以讓我依月份和預算推薦。");
+  chips([...Object.keys(REGIONS).map(k=>({label:k,c:REGIONS[k].c})),{label:"幫我推薦",c:"var(--g)",k:"rec"}],
+    it=>it.k==="rec"?askMonth():askCountry(it.label));
+}
+/* ===== 反向推薦：月份 + 玩法 + 預算 ===== */
+function askMonth(){
+  add("b","想幾月出發？");
+  const ms=[0,1,2,3].map(i=>((NOW-1+i)%12)+1);
+  chips(ms.map((m,i)=>({label:(i?"":"本月 ")+m+" 月",m})),it=>askStyle(it.m));
+}
+function askStyle(m){
+  add("b","想怎麼玩？");
+  chips([{label:"跟團"},{label:"自由行"}],it=>askBudget(m,it.label==="跟團"?"t":"f"));
+}
+function askBudget(m,k){
+  add("b","每人預算大約多少？");
+  chips([{label:"2 萬以下",b:[0,2]},{label:"2–4 萬",b:[2,4]},{label:"4–8 萬",b:[4,8]},{label:"8 萬以上",b:[8,99]}],
+    it=>recommend(m,k,it.b,it.label));
+}
+function recommend(m,k,b,label){
+  const hits=Object.keys(D).filter(n=>{const d=D[n];return d.m.includes(m)&&d[k][0]<=b[1]&&d[k][1]>=b[0];})
+    .sort((x,y)=>D[x][k][0]-D[y][k][0]);
+  if(!hits.length){
+    add("b",`${m} 月、${label}的${k==="t"?"跟團":"自由行"}目前沒有合適的目的地，換個月份或預算再試試。`);
+    return chips([{label:"重新推薦",k:1},{label:"回到地區"}],it=>it.k?askMonth():askRegion());
+  }
+  add("b",`${m} 月、${k==="t"?"跟團":"自由行"}、預算${label}，推薦這 ${hits.length} 個，點開看詳情：`);
+  chips([...hits.map(n=>({label:n+" "+money(D[n][k][0],D[n][k][1]),n})),{label:"重新推薦",k:1}],
+    it=>it.k?askMonth():answer(it.n));
+}
+function askCountry(r){
+  add("b",`好的，${r}要查哪個國家？`);
+  chips([...REGIONS[r].list.map(n=>({label:n,c:REGIONS[r].c})),{label:"← 換地區"}],
+    it=>it.label==="← 換地區"?askRegion():answer(it.label));
+}
+function answer(n){
+  const d=D[n]; const fit=d.m.includes(NOW); lastName=n;
+  const verdict = fit
+    ? `<span class="ok">現在（${NOW} 月）適合出發</span>`
+    : `<span class="no">現在（${NOW} 月）不是最佳季節</span>`;
+  const next = fit ? "" : `，最近的好時機是 ${[...d.m].sort((a,b)=>a-b).find(x=>x>NOW)||Math.min(...d.m)} 月`;
+  last = `【${n}】${d.s}\n跟團（${d.t[2]}）約 ${money(d.t[0],d.t[1])}\n自由行約 ${money(d.f[0],d.f[1])}\n※ 參考估價，每人、新台幣`;
+  add("b",`<b>${n}</b><br>${verdict}${next}
+    <table>
+      <tr><td>最佳季節</td><td>${d.s}</td></tr>
+      <tr><td>跟團（${d.t[2]}）</td><td>約 ${money(d.t[0],d.t[1])}</td></tr>
+      <tr><td>自由行</td><td>約 ${money(d.f[0],d.f[1])}</td></tr>
+    </table>
+    <div class="note">參考估價：每人、新台幣，旺季與機票時段會有落差。</div>`);
+  chips([{label:"傳送到聊天室",k:"send"},{label:"分享給朋友",k:"share"},{label:"查其他國家",k:"again"}],it=>{
+    if(it.k==="send") send(); else if(it.k==="share") share(); else askRegion();
+  });
+}
+function send(){
+  if(window.liff && liff.isInClient && liff.isInClient()){
+    liff.sendMessages([{type:"text",text:last}]).then(()=>add("b","已傳送到聊天室。")).catch(()=>add("b","傳送失敗，請確認 LIFF 已開啟 chat_message.write 權限。"));
+  }else{ add("b","請在 LINE App 內開啟此頁，才能傳送到聊天室。"); }
+  chips([{label:"查其他國家"}],askRegion);
+}
+/* ===== Flex Message 分享卡片 ===== */
+function flex(n){
+  const d=D[n], t=(x,o)=>Object.assign({type:"text",size:"sm",wrap:true,text:x},o||{});
+  return {type:"flex",altText:`${n} 旅遊小抄`,contents:{type:"bubble",
+    body:{type:"box",layout:"vertical",spacing:"sm",contents:[
+      t("2026 旅遊小抄",{size:"xs",color:"#888888"}),
+      t(n,{weight:"bold",size:"xl"}),
+      t("最佳季節："+d.s),
+      t(`跟團（${d.t[2]}）約 ${money(d.t[0],d.t[1])}`),
+      t(`自由行約 ${money(d.f[0],d.f[1])}`),
+      t("參考估價，每人、新台幣",{size:"xxs",color:"#888888"})]},
+    footer:{type:"box",layout:"vertical",contents:[
+      {type:"button",style:"primary",color:"#06c755",action:{type:"uri",label:"我也要查",uri:"https://liff.line.me/"+LIFF_ID}}]}}};
+}
+function share(){
+  let ok=false;
+  try{ ok=window.liff && liff.isApiAvailable && liff.isApiAvailable("shareTargetPicker"); }catch(e){}
+  if(ok){
+    liff.shareTargetPicker([flex(lastName)]).then(r=>{ if(r) add("b","已分享給朋友。"); })
+      .catch(()=>add("b","分享失敗，請確認 LIFF 已開啟 shareTargetPicker。"));
+  }else{ add("b","請在 LINE App 內開啟此頁，並在 LIFF 設定開啟 shareTargetPicker，才能分享。"); }
+  chips([{label:"查其他國家"}],askRegion);
+}
+// 自由輸入：比對國家或地區名稱
+document.getElementById("f").onsubmit=e=>{
+  e.preventDefault();
+  const q=document.getElementById("q"), v=q.value.trim(); q.value=""; if(!v) return;
+  add("u",v);
+  const c=Object.keys(D).find(k=>v.includes(k)||k.includes(v));
+  const r=Object.keys(REGIONS).find(k=>v.includes(k));
+  if(v.includes("推薦")) askMonth(); else if(c) answer(c); else if(r) askCountry(r);
+  else { add("b","目前可查：日本、南韓、中國、泰國、越南、馬來西亞、菲律賓、印尼、英國、法國、德國、西班牙、美國。"); askRegion(); }
+};
+
+// LIFF 初始化（在一般瀏覽器預覽時失敗也不影響問答）
+try{ liff.init({liffId:LIFF_ID}).catch(()=>{}); }catch(e){}
+askRegion();
+</script>
+</body>
+</html>
